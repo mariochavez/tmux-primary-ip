@@ -18,32 +18,51 @@ get_tmux_option() {
 }
 
 get_primary_ip_macos() {
-  if="NONE"
-  route_str="$(route -n get 8.8.8.8 2> /dev/null | grep 'interface:' | awk '{ print $2 }')"
-  if [ -n "${route_str}" ]; then
-    if="${route_str}"
-    ip="$(ipconfig getifaddr "${if}" 2> /dev/null)"
-  else
-    ip="no internet"
+  local vpn_active="false"
+  local vpn_ip=""
+  local vpn_if=""
+  local local_ip=""
+  local local_if=""
+  local icon="unknown"
+
+  # Step 1: Get default interface from route
+  default_if=$(route -n get 8.8.8.8 2> /dev/null | awk '/interface: / { print $2 }')
+
+  if echo "$default_if" | grep -qE '^utun|^tun|^ipsec'; then
+    vpn_active="true"
+    vpn_if="$default_if"
+    vpn_ip=$(ipconfig getifaddr "$vpn_if" 2>/dev/null)
   fi
 
-  case "${if}" in
-    en*)
-      ethernet="$(ifconfig "${if}" 2> /dev/null | grep "supported media:" | grep "baseT")"
-      if [ -n "${ethernet}" ]; then
-        icon="ethernet"
-      else
-        icon="wifi"
-      fi
-      ;;
-    tun*|utun*|ipsec*)
-      icon="vpn"
-      ;;
-    *)
-      icon="unknown"
-      ;;
-  esac
-  printf "%s:%s" "${icon}" "${ip}"
+  # Step 2: Try to get local IP from en interfaces
+  for iface in en0 en1; do
+    local_ip=$(ipconfig getifaddr "$iface" 2>/dev/null)
+    if [ -n "$local_ip" ]; then
+      local_if="$iface"
+      break
+    fi
+  done
+
+  # Step 3: Decide what to display
+  if [ "$vpn_active" = "true" ]; then
+    icon="vpn"
+    if [ -n "$vpn_ip" ]; then
+      printf "%s:%s" "$icon" "$vpn_ip"
+    elif [ -n "$local_ip" ]; then
+      printf "%s:%s" "$icon" "$local_ip"
+    else
+      printf "%s:%s" "$icon" "no ip"
+    fi
+  elif [ -n "$local_ip" ]; then
+    if ifconfig "$local_if" 2>/dev/null | grep -q "media.*baseT"; then
+      icon="ethernet"
+    else
+      icon="wifi"
+    fi
+    printf "%s:%s" "$icon" "$local_ip"
+  else
+    printf "%s:%s" "unknown" "no ip"
+  fi
 }
 
 get_primary_ip_freebsd () {
