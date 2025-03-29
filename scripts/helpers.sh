@@ -18,31 +18,51 @@ get_tmux_option() {
 }
 
 get_primary_ip_macos() {
-  if="NONE"
-  route_str="$(route -n get 8.8.8.8 2> /dev/null | grep 'interface:' | awk '{ print $2 }')"
-  if [ -n "${route_str}" ]; then
-    if="${route_str}"
-    ip="$(ipconfig getifaddr "${if}" 2> /dev/null)"
-  else
-    ip="no internet"
+  local ip=""
+  local icon="unknown"
+  local primary_if=""
+
+  # Try to get IP from physical interfaces first
+  for iface in en0 en1; do
+    ip=$(ipconfig getifaddr "$iface" 2>/dev/null)
+    if [ -n "$ip" ]; then
+      primary_if="$iface"
+      break
+    fi
+  done
+
+  # Fallback: check VPN if no physical IP found
+  if [ -z "$ip" ]; then
+    for iface in utun0 utun1 tun0 tun1; do
+      ip=$(ipconfig getifaddr "$iface" 2>/dev/null)
+      if [ -n "$ip" ]; then
+        primary_if="$iface"
+        break
+      fi
+    done
   fi
 
-  case "${if}" in
-    en*)
-      ethernet="$(ifconfig "${if}" 2> /dev/null | grep "supported media:" | grep "baseT")"
-      if [ -n "${ethernet}" ]; then
-        icon="ethernet"
-      else
-        icon="wifi"
-      fi
-      ;;
-    tun*|utun*|ipsec*)
-      icon="vpn"
-      ;;
-    *)
-      icon="unknown"
-      ;;
-  esac
+  if [ -z "$ip" ]; then
+    ip="no internet"
+    icon="unknown"
+  else
+    case "$primary_if" in
+      en*)
+        if ifconfig "$primary_if" 2>/dev/null | grep -q "media.*baseT"; then
+          icon="ethernet"
+        else
+          icon="wifi"
+        fi
+        ;;
+      tun*|utun*|ipsec*)
+        icon="vpn"
+        ;;
+      *)
+        icon="unknown"
+        ;;
+    esac
+  fi
+
   printf "%s:%s" "${icon}" "${ip}"
 }
 
