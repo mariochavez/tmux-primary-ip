@@ -21,8 +21,18 @@ get_primary_ip_macos() {
   local ip=""
   local icon="unknown"
   local primary_if=""
+  local vpn_active="false"
 
-  # Try to get IP from physical interfaces first
+  # Step 1: Check if VPN is active by checking utun*/tun* interfaces
+  for iface in $(ifconfig -l | tr ' ' '\n' | grep -E '^utun|^tun|^ipsec'); do
+    vpn_ip=$(ipconfig getifaddr "$iface" 2>/dev/null)
+    if [ -n "$vpn_ip" ]; then
+      vpn_active="true"
+      break
+    fi
+  done
+
+  # Step 2: Get local IP from physical interface (en0, en1, etc)
   for iface in en0 en1; do
     ip=$(ipconfig getifaddr "$iface" 2>/dev/null)
     if [ -n "$ip" ]; then
@@ -31,36 +41,20 @@ get_primary_ip_macos() {
     fi
   done
 
-  # Fallback: check VPN if no physical IP found
-  if [ -z "$ip" ]; then
-    for iface in utun0 utun1 tun0 tun1; do
-      ip=$(ipconfig getifaddr "$iface" 2>/dev/null)
-      if [ -n "$ip" ]; then
-        primary_if="$iface"
-        break
-      fi
-    done
-  fi
-
+  # Fallback if no IP was found
   if [ -z "$ip" ]; then
     ip="no internet"
     icon="unknown"
   else
-    case "$primary_if" in
-      en*)
-        if ifconfig "$primary_if" 2>/dev/null | grep -q "media.*baseT"; then
-          icon="ethernet"
-        else
-          icon="wifi"
-        fi
-        ;;
-      tun*|utun*|ipsec*)
-        icon="vpn"
-        ;;
-      *)
-        icon="unknown"
-        ;;
-    esac
+    if [ "$vpn_active" = "true" ]; then
+      icon="vpn"
+    else
+      if ifconfig "$primary_if" 2>/dev/null | grep -q "media.*baseT"; then
+        icon="ethernet"
+      else
+        icon="wifi"
+      fi
+    fi
   fi
 
   printf "%s:%s" "${icon}" "${ip}"
